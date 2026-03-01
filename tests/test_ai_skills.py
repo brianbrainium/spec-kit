@@ -22,6 +22,7 @@ import specify_cli
 
 from specify_cli import (
     _get_skills_dir,
+    _extract_first_fenced_block,
     install_ai_skills,
     AGENT_SKILLS_DIR_OVERRIDES,
     DEFAULT_SKILLS_DIR,
@@ -619,6 +620,66 @@ class TestCliValidation:
 
         assert "Usage:" in result.output
         assert "--ai" in result.output
+
+
+class TestCodexWebInitOutput:
+    """Test codex-web init next steps output behavior."""
+
+    def _fake_extract_codex_web(self, project_path, marker: str):
+        docs_dir = project_path / "docs" / "codex-web"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+        (docs_dir / "00-bootstrap.md").write_text(
+            "# Bootstrap\n\n"
+            "### COPY/PASTE INTO CODEX WEB TASK\n"
+            "```text\n"
+            f"{marker}\n"
+            "Phase: Implement only.\n"
+            "```\n",
+            encoding="utf-8",
+        )
+
+    def test_codex_web_init_shows_prompt_and_not_slash_commands(self, tmp_path):
+        """Codex-web should print prompt content from docs/codex-web instead of slash commands list."""
+        from typer.testing import CliRunner
+
+        runner = CliRunner()
+        target = tmp_path / "codex-web-proj"
+        marker = "UNIQUE_TEST_MARKER_123"
+
+        def fake_download(project_path, *args, **kwargs):
+            self._fake_extract_codex_web(project_path, marker)
+
+        with patch("specify_cli.download_and_extract_template", side_effect=fake_download), \
+             patch("specify_cli.ensure_executable_scripts"), \
+             patch("specify_cli.ensure_constitution_from_template"), \
+             patch("specify_cli.is_git_repo", return_value=False), \
+             patch("specify_cli.shutil.which", return_value="/usr/bin/git"):
+            result = runner.invoke(app, ["init", str(target), "--ai", "codex-web", "--script", "sh", "--no-git"])
+
+        assert result.exit_code == 0
+        assert marker in result.output
+        assert "Phase: Implement only." in result.output
+        assert "/speckit.constitution" not in result.output
+
+
+class TestCodexWebPromptParsing:
+    """Unit tests for fenced block extraction helper."""
+
+    def test_extract_first_fenced_block_prefers_text_and_handles_crlf(self):
+        markdown = (
+            "# Example\r\n\r\n"
+            "```md\r\n"
+            "fallback block\r\n"
+            "```\r\n\r\n"
+            "```text\r\n"
+            "preferred block\r\n"
+            "```\r\n"
+        )
+
+        assert _extract_first_fenced_block(markdown) == "preferred block"
+
+    def test_extract_first_fenced_block_returns_none_when_missing(self):
+        assert _extract_first_fenced_block("# No fences here") is None
 
     def test_ai_skills_flag_appears_in_help(self):
         """--ai-skills should appear in init --help output."""

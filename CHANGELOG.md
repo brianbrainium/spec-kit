@@ -7,6 +7,13 @@ Recent changes to the Specify CLI and templates are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-03-01
+
+### Changed
+
+- Updated `specify init --ai codex-web` Next Steps output to show Codex Web phase prompts directly in terminal output
+- Codex Web prompt text is now sourced at runtime from `docs/codex-web/*.md` fenced code blocks, keeping prompt content in a single canonical location with no duplicated prompt strings in CLI constants
+
 ## [0.1.7] - 2026-03-01
 
 ### Added

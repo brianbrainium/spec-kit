@@ -25,6 +25,7 @@ Or install globally:
 """
 
 import os
+import re
 import subprocess
 import sys
 import zipfile
@@ -96,6 +97,48 @@ def _resolve_template_repo(cli_value: str | None) -> tuple[str, str]:
 def _latest_release_api_url(repo_owner: str, repo_name: str) -> str:
     """Build GitHub API URL for latest release lookup."""
     return f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
+
+
+def _extract_first_fenced_block(markdown_text: str) -> Optional[str]:
+    """Extract the first fenced code block, preferring ```text blocks when present."""
+    blocks = []
+    pattern = re.compile(r"```([^\n\r`]*)\r?\n(.*?)\r?\n```", re.DOTALL)
+
+    for match in pattern.finditer(markdown_text):
+        language = (match.group(1) or "").strip().lower()
+        body = match.group(2)
+        blocks.append((language, body))
+
+    if not blocks:
+        return None
+
+    for language, body in blocks:
+        if language == "text":
+            return body
+
+    return blocks[0][1]
+
+
+def _load_codex_web_prompts(codex_docs_dir: Path) -> list[tuple[Path, Optional[str], Optional[str]]]:
+    """Load codex-web prompt blocks from docs/codex-web/*.md files in sorted filename order."""
+    results: list[tuple[Path, Optional[str], Optional[str]]] = []
+    phase_files = sorted(codex_docs_dir.glob("*.md"), key=lambda path: path.name)
+
+    for phase_file in phase_files:
+        try:
+            markdown_text = phase_file.read_text(encoding="utf-8")
+        except OSError as exc:
+            results.append((phase_file, None, f"Unable to read file: {exc}"))
+            continue
+
+        prompt_block = _extract_first_fenced_block(markdown_text)
+        if prompt_block is None:
+            results.append((phase_file, None, "No fenced code block found"))
+            continue
+
+        results.append((phase_file, prompt_block, None))
+
+    return results
 
 def _parse_rate_limit_headers(headers: httpx.Headers) -> dict:
     """Extract and parse GitHub rate-limit headers."""
@@ -1621,17 +1664,62 @@ def init(
         steps_lines.append(f"{step_num}. Set [cyan]CODEX_HOME[/cyan] environment variable before running Codex: [cyan]{cmd}[/cyan]")
         step_num += 1
 
-    steps_lines.append(f"{step_num}. Start using slash commands with your AI agent:")
+    if selected_ai == "codex-web":
+        steps_lines.append(f"{step_num}. Use the Codex Web UI tasks below (copy/paste prompts by phase):")
+        steps_panel = Panel("\n".join(steps_lines), title="Next Steps (Codex Web UI)", border_style="cyan", padding=(1,2))
+        console.print()
+        console.print(steps_panel)
 
-    steps_lines.append("   2.1 [cyan]/speckit.constitution[/] - Establish project principles")
-    steps_lines.append("   2.2 [cyan]/speckit.specify[/] - Create baseline specification")
-    steps_lines.append("   2.3 [cyan]/speckit.plan[/] - Create implementation plan")
-    steps_lines.append("   2.4 [cyan]/speckit.tasks[/] - Generate actionable tasks")
-    steps_lines.append("   2.5 [cyan]/speckit.implement[/] - Execute implementation")
+        codex_docs_dir = project_path / "docs" / "codex-web"
+        if not codex_docs_dir.exists():
+            console.print(Panel(
+                f"[yellow]Warning:[/yellow] Missing directory [cyan]{codex_docs_dir}[/cyan].",
+                title="Codex Web Prompts",
+                border_style="yellow",
+                padding=(1, 2),
+            ))
+        else:
+            prompt_results = _load_codex_web_prompts(codex_docs_dir)
+            if not prompt_results:
+                console.print(Panel(
+                    f"[yellow]Warning:[/yellow] No markdown files found in [cyan]{codex_docs_dir}[/cyan].",
+                    title="Codex Web Prompts",
+                    border_style="yellow",
+                    padding=(1, 2),
+                ))
 
-    steps_panel = Panel("\n".join(steps_lines), title="Next Steps", border_style="cyan", padding=(1,2))
-    console.print()
-    console.print(steps_panel)
+            for phase_file, prompt_block, warning in prompt_results:
+                relative_phase_path = phase_file.relative_to(project_path)
+                if warning:
+                    console.print(Panel(
+                        f"[yellow]Warning:[/yellow] [cyan]{relative_phase_path}[/cyan]: {warning}",
+                        title="Codex Web Prompt",
+                        border_style="yellow",
+                        padding=(1, 2),
+                    ))
+                    continue
+
+                prompt_text = Text()
+                prompt_text.append(f"File: {relative_phase_path}\n\n", style="bold cyan")
+                prompt_text.append(prompt_block or "")
+                console.print(Panel(
+                    prompt_text,
+                    title=f"Codex Web Prompt: {phase_file.name}",
+                    border_style="cyan",
+                    padding=(1, 2),
+                ))
+    else:
+        steps_lines.append(f"{step_num}. Start using slash commands with your AI agent:")
+
+        steps_lines.append("   2.1 [cyan]/speckit.constitution[/] - Establish project principles")
+        steps_lines.append("   2.2 [cyan]/speckit.specify[/] - Create baseline specification")
+        steps_lines.append("   2.3 [cyan]/speckit.plan[/] - Create implementation plan")
+        steps_lines.append("   2.4 [cyan]/speckit.tasks[/] - Generate actionable tasks")
+        steps_lines.append("   2.5 [cyan]/speckit.implement[/] - Execute implementation")
+
+        steps_panel = Panel("\n".join(steps_lines), title="Next Steps", border_style="cyan", padding=(1,2))
+        console.print()
+        console.print(steps_panel)
 
     enhancement_lines = [
         "Optional commands that you can use for your specs [bright_black](improve quality & confidence)[/bright_black]",
