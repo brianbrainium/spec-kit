@@ -7,6 +7,20 @@ Recent changes to the Specify CLI and templates are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-03-01
+
+### Added
+
+- Added a Codex Web UI Pack under `docs/codex-web/` with phase-gated copy/paste prompts for Constitution → Specify → Plan → Tasks → Implement → Analyze, plus troubleshooting guidance
+- Added agent-context templates under `templates/agent-context/` for Codex Web and reusable Spec Kit guardrails
+- Added `codex-web` as a supported `--ai` option (no CLI tool requirement), with release packaging support
+
+### Changed
+
+- Added configurable template release source via `--template-repo OWNER/REPO` and `SPECIFY_TEMPLATE_REPO` (precedence: CLI > env > default `github/spec-kit`)
+- Added strict template repo validation and routed latest-release lookups through shared helpers for both `init` downloads and `version` metadata
+- Updated release packaging to include `docs/codex-web/*` and `templates/agent-context/*` at top-level in template archives
+
 ## [0.1.6] - 2026-02-23
 
 ### Fixed

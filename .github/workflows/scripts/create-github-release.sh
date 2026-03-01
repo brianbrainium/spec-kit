@@ -32,6 +32,8 @@ gh release create "$VERSION" \
   .genreleases/spec-kit-template-windsurf-ps-"$VERSION".zip \
   .genreleases/spec-kit-template-codex-sh-"$VERSION".zip \
   .genreleases/spec-kit-template-codex-ps-"$VERSION".zip \
+  .genreleases/spec-kit-template-codex-web-sh-"$VERSION".zip \
+  .genreleases/spec-kit-template-codex-web-ps-"$VERSION".zip \
   .genreleases/spec-kit-template-kilocode-sh-"$VERSION".zip \
   .genreleases/spec-kit-template-kilocode-ps-"$VERSION".zip \
   .genreleases/spec-kit-template-auggie-sh-"$VERSION".zip \

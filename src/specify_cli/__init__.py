@@ -66,6 +66,37 @@ def _github_auth_headers(cli_token: str | None = None) -> dict:
     token = _github_token(cli_token)
     return {"Authorization": f"Bearer {token}"} if token else {}
 
+
+def _validate_template_repo(value: str) -> tuple[str, str]:
+    """Validate OWNER/REPO template source and return (owner, repo)."""
+    import re
+
+    trimmed = (value or "").strip()
+    pattern = r"^[-._A-Za-z0-9]+/[-._A-Za-z0-9]+$"
+    if not re.match(pattern, trimmed):
+        raise ValueError(
+            "Invalid template repository. Expected OWNER/REPO with URL-safe characters "
+            "[-._A-Za-z0-9] and exactly one '/'."
+        )
+
+    owner, repo = trimmed.split("/", 1)
+    if not owner or not repo:
+        raise ValueError("Invalid template repository. Owner and repo must be non-empty.")
+    return owner, repo
+
+
+def _resolve_template_repo(cli_value: str | None) -> tuple[str, str]:
+    """Resolve template repository with precedence CLI > env > default."""
+    candidate = cli_value if cli_value else os.getenv("SPECIFY_TEMPLATE_REPO")
+    if candidate:
+        return _validate_template_repo(candidate)
+    return "github", "spec-kit"
+
+
+def _latest_release_api_url(repo_owner: str, repo_name: str) -> str:
+    """Build GitHub API URL for latest release lookup."""
+    return f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
+
 def _parse_rate_limit_headers(headers: httpx.Headers) -> dict:
     """Extract and parse GitHub rate-limit headers."""
     info = {}
@@ -173,6 +204,13 @@ AGENT_CONFIG = {
         "commands_subdir": "prompts",  # Special: uses prompts/ not commands/
         "install_url": "https://github.com/openai/codex",
         "requires_cli": True,
+    },
+    "codex-web": {
+        "name": "Codex Web UI",
+        "folder": ".codex-web/",
+        "commands_subdir": "prompts",
+        "install_url": None,
+        "requires_cli": False,
     },
     "windsurf": {
         "name": "Windsurf",
@@ -666,15 +704,19 @@ def merge_json_files(existing_path: Path, new_content: dict, verbose: bool = Fal
 
     return merged
 
-def download_template_from_github(ai_assistant: str, download_dir: Path, *, script_type: str = "sh", verbose: bool = True, show_progress: bool = True, client: httpx.Client = None, debug: bool = False, github_token: str = None) -> Tuple[Path, dict]:
-    repo_owner = "github"
-    repo_name = "spec-kit"
+def download_template_from_github(ai_assistant: str, download_dir: Path, *, script_type: str = "sh", template_repo: str | None = None, verbose: bool = True, show_progress: bool = True, client: httpx.Client = None, debug: bool = False, github_token: str = None) -> Tuple[Path, dict]:
+    try:
+        repo_owner, repo_name = _resolve_template_repo(template_repo)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
     if client is None:
         client = httpx.Client(verify=ssl_context)
 
     if verbose:
         console.print("[cyan]Fetching latest release information...[/cyan]")
-    api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
+    api_url = _latest_release_api_url(repo_owner, repo_name)
 
     try:
         response = client.get(
@@ -780,11 +822,17 @@ def download_template_from_github(ai_assistant: str, download_dir: Path, *, scri
     }
     return zip_path, metadata
 
-def download_and_extract_template(project_path: Path, ai_assistant: str, script_type: str, is_current_dir: bool = False, *, verbose: bool = True, tracker: StepTracker | None = None, client: httpx.Client = None, debug: bool = False, github_token: str = None) -> Path:
+def download_and_extract_template(project_path: Path, ai_assistant: str, script_type: str, is_current_dir: bool = False, *, template_repo: str | None = None, verbose: bool = True, tracker: StepTracker | None = None, client: httpx.Client = None, debug: bool = False, github_token: str = None) -> Path:
     """Download the latest release and extract it to create a new project.
     Returns project_path. Uses tracker if provided (with keys: fetch, download, extract, cleanup)
     """
     current_dir = Path.cwd()
+
+    try:
+        resolved_owner, resolved_repo = _resolve_template_repo(template_repo)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
 
     if tracker:
         tracker.start("fetch", "contacting GitHub API")
@@ -793,6 +841,7 @@ def download_and_extract_template(project_path: Path, ai_assistant: str, script_
             ai_assistant,
             current_dir,
             script_type=script_type,
+            template_repo=f"{resolved_owner}/{resolved_repo}",
             verbose=verbose and tracker is None,
             show_progress=(tracker is None),
             client=client,
@@ -1214,7 +1263,7 @@ def install_ai_skills(project_path: Path, selected_ai: str, tracker: StepTracker
 @app.command()
 def init(
     project_name: str = typer.Argument(None, help="Name for your new project directory (optional if using --here, or use '.' for current directory)"),
-    ai_assistant: str = typer.Option(None, "--ai", help="AI assistant to use: claude, gemini, copilot, cursor-agent, qwen, opencode, codex, windsurf, kilocode, auggie, codebuddy, amp, shai, q, agy, bob, qodercli, or generic (requires --ai-commands-dir)"),
+    ai_assistant: str = typer.Option(None, "--ai", help="AI assistant to use: claude, gemini, copilot, cursor-agent, qwen, opencode, codex, codex-web, windsurf, kilocode, auggie, codebuddy, amp, shai, q, agy, bob, qodercli, or generic (requires --ai-commands-dir)"),
     ai_commands_dir: str = typer.Option(None, "--ai-commands-dir", help="Directory for agent command files (required with --ai generic, e.g. .myagent/commands/)"),
     script_type: str = typer.Option(None, "--script", help="Script type to use: sh or ps"),
     ignore_agent_tools: bool = typer.Option(False, "--ignore-agent-tools", help="Skip checks for AI agent tools like Claude Code"),
@@ -1225,6 +1274,7 @@ def init(
     debug: bool = typer.Option(False, "--debug", help="Show verbose diagnostic output for network and extraction failures"),
     github_token: str = typer.Option(None, "--github-token", help="GitHub token to use for API requests (or set GH_TOKEN or GITHUB_TOKEN environment variable)"),
     ai_skills: bool = typer.Option(False, "--ai-skills", help="Install Prompt.MD templates as agent skills (requires --ai)"),
+    template_repo: str = typer.Option(None, "--template-repo", help="Template release source as OWNER/REPO (or set SPECIFY_TEMPLATE_REPO)"),
 ):
     """
     Initialize a new Specify project from the latest template.
@@ -1252,6 +1302,7 @@ def init(
         specify init my-project --ai claude --ai-skills   # Install agent skills
         specify init --here --ai gemini --ai-skills
         specify init my-project --ai generic --ai-commands-dir .myagent/commands/  # Unsupported agent
+        specify init my-project --template-repo my-org/my-spec-kit-fork
     """
 
     show_banner()
@@ -1317,6 +1368,12 @@ def init(
             raise typer.Exit(1)
 
     current_dir = Path.cwd()
+
+    try:
+        resolved_owner, resolved_repo = _resolve_template_repo(template_repo)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
 
     setup_lines = [
         "[cyan]Specify Project Setup[/cyan]",
@@ -1433,7 +1490,7 @@ def init(
             local_ssl_context = ssl_context if verify else False
             local_client = httpx.Client(verify=local_ssl_context)
 
-            download_and_extract_template(project_path, selected_ai, selected_script, here, verbose=False, tracker=tracker, client=local_client, debug=debug, github_token=github_token)
+            download_and_extract_template(project_path, selected_ai, selected_script, here, template_repo=f"{resolved_owner}/{resolved_repo}", verbose=False, tracker=tracker, client=local_client, debug=debug, github_token=github_token)
 
             # For generic agent, rename placeholder directory to user-specified path
             if selected_ai == "generic" and ai_commands_dir:
@@ -1632,7 +1689,9 @@ def check():
         console.print("[dim]Tip: Install an AI assistant for the best experience[/dim]")
 
 @app.command()
-def version():
+def version(
+    template_repo: str = typer.Option(None, "--template-repo", help="Template release source as OWNER/REPO (or set SPECIFY_TEMPLATE_REPO)"),
+):
     """Display version and system information."""
     import platform
     import importlib.metadata
@@ -1656,9 +1715,12 @@ def version():
             pass
     
     # Fetch latest template release version
-    repo_owner = "github"
-    repo_name = "spec-kit"
-    api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
+    try:
+        repo_owner, repo_name = _resolve_template_repo(template_repo)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    api_url = _latest_release_api_url(repo_owner, repo_name)
     
     template_version = "unknown"
     release_date = "unknown"
@@ -1692,6 +1754,7 @@ def version():
     info_table.add_column("Value", style="white")
 
     info_table.add_row("CLI Version", cli_version)
+    info_table.add_row("Template Source", f"{repo_owner}/{repo_name}")
     info_table.add_row("Template Version", template_version)
     info_table.add_row("Released", release_date)
     info_table.add_row("", "")
@@ -2350,4 +2413,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
