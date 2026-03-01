@@ -6,7 +6,7 @@ set -euo pipefail
 # Usage: .github/workflows/scripts/create-release-packages.sh <version>
 #   Version argument should include leading 'v'.
 #   Optionally set AGENTS and/or SCRIPTS env vars to limit what gets built.
-#     AGENTS  : space or comma separated subset of: claude gemini copilot cursor-agent qwen opencode windsurf codex amp shai bob generic (default: all)
+#     AGENTS  : space or comma separated subset of: claude gemini copilot cursor-agent qwen opencode windsurf codex codex-web amp shai bob generic (default: all)
 #     SCRIPTS : space or comma separated subset of: sh ps (default: both)
 #   Examples:
 #     AGENTS=claude SCRIPTS=sh $0 v0.2.0
@@ -151,8 +151,11 @@ build_variant() {
     esac
   fi
   
-  [[ -d templates ]] && { mkdir -p "$SPEC_DIR/templates"; find templates -type f -not -path "templates/commands/*" -not -name "vscode-settings.json" -exec cp --parents {} "$SPEC_DIR"/ \; ; echo "Copied templates -> .specify/templates"; }
+  [[ -d templates ]] && { mkdir -p "$SPEC_DIR/templates"; find templates -type f -not -path "templates/commands/*" -not -path "templates/agent-context/*" -not -name "vscode-settings.json" -exec cp --parents {} "$SPEC_DIR"/ \; ; echo "Copied templates -> .specify/templates"; }
   
+  [[ -d docs/codex-web ]] && { mkdir -p "$base_dir/docs"; cp -r docs/codex-web "$base_dir/docs/"; echo "Copied docs/codex-web"; }
+  [[ -d templates/agent-context ]] && { mkdir -p "$base_dir/templates"; cp -r templates/agent-context "$base_dir/templates/"; echo "Copied templates/agent-context"; }
+
   # NOTE: We substitute {ARGS} internally. Outward tokens differ intentionally:
   #   * Markdown/prompt (claude, copilot, cursor-agent, opencode): $ARGUMENTS
   #   * TOML (gemini, qwen): {{args}}
@@ -191,6 +194,23 @@ build_variant() {
     codex)
       mkdir -p "$base_dir/.codex/prompts"
       generate_commands codex md "\$ARGUMENTS" "$base_dir/.codex/prompts" "$script" ;;
+    codex-web)
+      mkdir -p "$base_dir/.codex-web"
+      cat > "$base_dir/.codex-web/README.md" <<'EOF'
+# Codex Web UI Pack
+
+Use the prompts in `docs/codex-web/` to run the full Spec Kit lifecycle in Codex Web UI tasks:
+
+1. `docs/codex-web/00-bootstrap.md`
+2. `docs/codex-web/01-constitution.md`
+3. `docs/codex-web/02-specify.md`
+4. `docs/codex-web/03-plan.md`
+5. `docs/codex-web/04-tasks.md`
+6. `docs/codex-web/05-implement.md`
+7. `docs/codex-web/06-analyze.md`
+8. `docs/codex-web/90-troubleshooting.md`
+EOF
+      ;;
     kilocode)
       mkdir -p "$base_dir/.kilocode/workflows"
       generate_commands kilocode md "\$ARGUMENTS" "$base_dir/.kilocode/workflows" "$script" ;;
@@ -230,7 +250,7 @@ build_variant() {
 }
 
 # Determine agent list
-ALL_AGENTS=(claude gemini copilot cursor-agent qwen opencode windsurf codex kilocode auggie roo codebuddy amp shai q agy bob qodercli generic)
+ALL_AGENTS=(claude gemini copilot cursor-agent qwen opencode windsurf codex codex-web kilocode auggie roo codebuddy amp shai q agy bob qodercli generic)
 ALL_SCRIPTS=(sh ps)
 
 norm_list() {
