@@ -481,7 +481,7 @@ class TestNewProjectCommandSkip:
              patch("specify_cli.install_ai_skills", return_value=True) as mock_skills, \
              patch("specify_cli.is_git_repo", return_value=False), \
              patch("specify_cli.shutil.which", return_value="/usr/bin/git"):
-            result = runner.invoke(app, ["init", str(target), "--ai", "claude", "--ai-skills", "--script", "sh", "--no-git"])
+            _ = runner.invoke(app, ["init", str(target), "--ai", "claude", "--ai-skills", "--script", "sh", "--no-git"])
 
         # Skills should have been called
         mock_skills.assert_called_once()
@@ -506,7 +506,7 @@ class TestNewProjectCommandSkip:
              patch("specify_cli.install_ai_skills", return_value=False), \
              patch("specify_cli.is_git_repo", return_value=False), \
              patch("specify_cli.shutil.which", return_value="/usr/bin/git"):
-            result = runner.invoke(app, ["init", str(target), "--ai", "claude", "--ai-skills", "--script", "sh", "--no-git"])
+            _ = runner.invoke(app, ["init", str(target), "--ai", "claude", "--ai-skills", "--script", "sh", "--no-git"])
 
         # Commands should still exist since skills failed
         cmds_dir = target / ".claude" / "commands"
@@ -538,7 +538,7 @@ class TestNewProjectCommandSkip:
              patch("specify_cli.install_ai_skills", return_value=True), \
              patch("specify_cli.is_git_repo", return_value=True), \
              patch("specify_cli.shutil.which", return_value="/usr/bin/git"):
-            result = runner.invoke(app, ["init", "--here", "--ai", "claude", "--ai-skills", "--script", "sh", "--no-git"])
+            _ = runner.invoke(app, ["init", "--here", "--ai", "claude", "--ai-skills", "--script", "sh", "--no-git"])
 
         # Commands must remain for --here
         assert cmds_dir.exists()
