@@ -290,6 +290,91 @@ const layoutGraph = (nodes: Node[], edges: Edge[]) => {
   });
 };
 
+const layoutFocusLanes = ({
+  nodes,
+  edges,
+  selectedId,
+}: {
+  nodes: Node[];
+  edges: Edge[];
+  selectedId: string;
+}) => {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const incoming = new Map<string, Set<string>>();
+  const outgoing = new Map<string, Set<string>>();
+
+  nodeIds.forEach((id) => {
+    incoming.set(id, new Set());
+    outgoing.set(id, new Set());
+  });
+
+  edges.forEach((edge) => {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) return;
+    outgoing.get(edge.source)?.add(edge.target);
+    incoming.get(edge.target)?.add(edge.source);
+  });
+
+  const walk = (start: string, neighbors: (id: string) => Set<string> | undefined) => {
+    const visited = new Set<string>();
+    const queue = [start];
+    while (queue.length) {
+      const current = queue.shift()!;
+      (neighbors(current) || []).forEach((next) => {
+        if (visited.has(next) || next === start) return;
+        visited.add(next);
+        queue.push(next);
+      });
+    }
+    return visited;
+  };
+
+  const upstream = walk(selectedId, (id) => incoming.get(id));
+  const downstream = walk(selectedId, (id) => outgoing.get(id));
+  const directChildren = outgoing.get(selectedId) || new Set<string>();
+
+  const topLane = Array.from(upstream).filter((id) => id !== selectedId);
+  const middleLane = [
+    ...Array.from(directChildren).filter((id) => id !== selectedId),
+    selectedId,
+  ];
+  const bottomLane = Array.from(downstream).filter((id) => id !== selectedId && !directChildren.has(id));
+
+  const leftovers = nodes
+    .map((node) => node.id)
+    .filter((id) => !topLane.includes(id) && !middleLane.includes(id) && !bottomLane.includes(id));
+
+  const laneY = {
+    top: 40,
+    middle: 220,
+    bottom: 400,
+    extra: 580,
+  };
+  const spacing = 260;
+
+  const placeLane = (ids: string[], y: number) => {
+    const selectedIndex = ids.indexOf(selectedId);
+    const centerIndex = selectedIndex >= 0 ? selectedIndex : Math.floor(ids.length / 2);
+    return new Map(
+      ids.map((id, index) => {
+        const offset = index - centerIndex;
+        return [id, { x: 600 + offset * spacing, y }];
+      }),
+    );
+  };
+
+  const positions = new Map<string, { x: number; y: number }>([
+    ...placeLane(topLane, laneY.top),
+    ...placeLane(middleLane, laneY.middle),
+    ...placeLane(bottomLane, laneY.bottom),
+    ...placeLane(leftovers, laneY.extra),
+  ]);
+
+  return nodes.map((node) => ({
+    ...node,
+    position: positions.get(node.id) || node.position,
+  }));
+};
+
 const BusinessProcessExplorerCanvas = () => {
   const [index, setIndex] = useState<DomainIndex | null>(null);
   const [summary, setSummary] = useState<LoadedSummary | null>(null);
@@ -383,8 +468,13 @@ const BusinessProcessExplorerCanvas = () => {
       }
     });
 
+    const positionedNodes =
+      viewMode === 'focus' && selectedId
+        ? layoutFocusLanes({ nodes: projectedNodes, edges: projectedEdges, selectedId })
+        : layoutGraph(projectedNodes, projectedEdges);
+
     return {
-      nodes: layoutGraph(projectedNodes, projectedEdges),
+      nodes: positionedNodes,
       edges: projectedEdges,
       blocked: false,
     };
